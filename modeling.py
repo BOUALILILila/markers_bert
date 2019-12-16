@@ -149,7 +149,7 @@ def main():
         logger.info("  Batch size = %d", args.train_batch_size)
         logger.info("  Num steps = %d", args.max_steps)
         dataset_path = f'{args.data_dir}/dataset_train.tf'
-        train_dataset = get_dataset(dataset_path, args.per_gpu_train_batch_size, args.max_seq_length, args.do_train)
+        train_dataset = get_dataset(dataset_path, args.train_batch_size, args.max_seq_length, args.do_train)
         tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" Done training !")
         logger.info(" average loss = %s", tr_loss)
