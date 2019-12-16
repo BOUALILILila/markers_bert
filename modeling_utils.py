@@ -34,7 +34,7 @@ def get_dataset(dataset_path, batch_size, seq_length, is_training_set=False):
     dataset = dataset.map(
             extract_fn, num_parallel_calls=4).prefetch(batch_size*10)
 
-    if is_training:
+    if is_training_set:
         dataset = dataset.repeat(1)
         dataset = dataset.shuffle(buffer_size=10)
     
