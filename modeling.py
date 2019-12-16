@@ -54,35 +54,35 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
 
             if len(results) == FLAGS.num_eval_docs:
 
-            log_probs, labels = zip(*results)
-            log_probs = np.stack(log_probs).reshape(-1, 2)
-            labels = np.stack(labels)
+                log_probs, labels = zip(*results)
+                log_probs = np.stack(log_probs).reshape(-1, 2)
+                labels = np.stack(labels)
 
-            scores = log_probs[:, 1]
-            pred_docs = scores.argsort()[::-1]
-            gt = set(list(np.where(labels > 0)[0]))
+                scores = log_probs[:, 1]
+                pred_docs = scores.argsort()[::-1]
+                gt = set(list(np.where(labels > 0)[0]))
 
-            all_metrics += metrics.metrics(
-                gt=gt, pred=pred_docs, metrics_map=METRICS_MAP)
+                all_metrics += metrics.metrics(
+                    gt=gt, pred=pred_docs, metrics_map=METRICS_MAP)
 
-            if FLAGS.msmarco_output:
-                start_idx = example_idx * FLAGS.num_eval_docs
-                end_idx = (example_idx + 1) * FLAGS.num_eval_docs
-                query_ids, doc_ids = zip(*query_docids_map[start_idx:end_idx])
-                assert len(set(query_ids)) == 1, "Query ids must be all the same."
-                query_id = query_ids[0]
-                rank = 1
-                for doc_idx in pred_docs:
-                doc_id = doc_ids[doc_idx]
-                # Skip fake docs, as they are only used to ensure that each query
-                # has 1000 docs.
-                if doc_id != "00000000":
-                    msmarco_file.write(
-                        "\t".join((query_id, doc_id, str(rank))) + "\n")
-                    rank += 1
+                if FLAGS.msmarco_output:
+                    start_idx = example_idx * FLAGS.num_eval_docs
+                    end_idx = (example_idx + 1) * FLAGS.num_eval_docs
+                    query_ids, doc_ids = zip(*query_docids_map[start_idx:end_idx])
+                    assert len(set(query_ids)) == 1, "Query ids must be all the same."
+                    query_id = query_ids[0]
+                    rank = 1
+                    for doc_idx in pred_docs:
+                    doc_id = doc_ids[doc_idx]
+                    # Skip fake docs, as they are only used to ensure that each query
+                    # has 1000 docs.
+                    if doc_id != "00000000":
+                        msmarco_file.write(
+                            "\t".join((query_id, doc_id, str(rank))) + "\n")
+                        rank += 1
 
-            example_idx += 1
-            results = []
+                example_idx += 1
+                results = []
 
             total_count += 1
 
