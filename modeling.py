@@ -49,7 +49,7 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
         for item in result:
             results.append((item["log_probs"], item["label_ids"]))
             if total_count % 10000 == 0:
-            logger.info("Read {} examples in {} secs".format(
+                logger.info("Read {} examples in {} secs".format(
                 total_count, int(time.time() - start_time)))
 
             if len(results) == FLAGS.num_eval_docs:
