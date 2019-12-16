@@ -138,7 +138,7 @@ def main():
                         datefmt = '%m/%d/%Y %H:%M:%S',
                         level = logging.INFO )
 
-
+    num_labels=2
     config = BertConfig.from_pretrained("bert-base-uncased", num_labels=num_labels)
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     model = TFBertForSequenceClassification.from_pretrained('bert-base-uncased', config=config)
