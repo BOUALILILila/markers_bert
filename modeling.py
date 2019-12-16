@@ -73,13 +73,13 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
                     query_id = query_ids[0]
                     rank = 1
                     for doc_idx in pred_docs:
-                    doc_id = doc_ids[doc_idx]
-                    # Skip fake docs, as they are only used to ensure that each query
-                    # has 1000 docs.
-                    if doc_id != "00000000":
-                        msmarco_file.write(
-                            "\t".join((query_id, doc_id, str(rank))) + "\n")
-                        rank += 1
+                        doc_id = doc_ids[doc_idx]
+                        # Skip fake docs, as they are only used to ensure that each query
+                        # has 1000 docs.
+                        if doc_id != "00000000":
+                            msmarco_file.write(
+                                "\t".join((query_id, doc_id, str(rank))) + "\n")
+                            rank += 1
 
                 example_idx += 1
                 results = []
