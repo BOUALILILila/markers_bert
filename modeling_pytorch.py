@@ -368,7 +368,7 @@ def main():
     logger.info("Training/evaluation parameters %s", args)
 
     if args.do_train:
-        dataset_path = f'{args.data_dir}/dataset_train.tf'
+        dataset_path = f'{args.data_dir}/dataset_eval.tf'
         train_dataset = get_dataset(dataset_path, args.per_gpu_train_batch_size, args.max_seq_length, args.do_train)
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
