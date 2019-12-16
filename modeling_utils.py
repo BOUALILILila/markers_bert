@@ -32,11 +32,11 @@ def get_dataset(dataset_path, batch_size, seq_length, is_training_set=False):
 
     dataset = tf.data.TFRecordDataset([dataset_path])
     dataset = dataset.map(
-            extract_fn, num_parallel_calls=4).prefetch(output_buffer_size)
+            extract_fn, num_parallel_calls=4).prefetch(batch_size*10)
 
     if is_training:
         dataset = dataset.repeat(1)
-        dataset = dataset.shuffle(buffer_size=1000)
+        dataset = dataset.shuffle(buffer_size=10)
     
     train_dataset = dataset.padded_batch(
             batch_size=batch_size,
