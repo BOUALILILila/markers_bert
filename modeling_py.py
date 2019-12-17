@@ -248,7 +248,7 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
         out_label_ids = None
         for batch in tqdm(eval_dataset, desc="Evaluating"):
             model.eval()
-            batch = tuple(torch.tensor(t.numpy(),dtype=torch.long).to(args.device) for t in batch)
+            #batch = tuple(torch.tensor(t.numpy(),dtype=torch.long).to(args.device) for t in batch)
 
             with torch.no_grad():
                 inputs = {'input_ids':      batch[0],
@@ -451,8 +451,8 @@ def main():
     logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt = '%m/%d/%Y %H:%M:%S',
                         level = logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
-    logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s",
-                    args.local_rank, device, args.n_gpu, bool(args.local_rank != -1))
+    #logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s",
+    #                args.local_rank, device, args.n_gpu, bool(args.local_rank != -1))
     
     # Set seed
     set_seed(args)
@@ -460,7 +460,7 @@ def main():
     config = BertConfig.from_pretrained("bert-base-uncased", num_labels=num_labels)
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     model = BertForSequenceClassification.from_pretrained('bert-base-uncased', config=config)
-    model.to(args.device)
+    #model.to(args.device)
 
     args.output_mode='classification'
 
@@ -492,7 +492,7 @@ def main():
         # Load a trained model and vocabulary that you have fine-tuned
         model = BertForSequenceClassification.from_pretrained(args.output_dir)
         tokenizer = BertTokenizer.from_pretrained(args.output_dir)
-        model.to(args.device)
+        #model.to(args.device)
 
 
     # Evaluation
@@ -509,7 +509,7 @@ def main():
             prefix = checkpoint.split('/')[-1] if checkpoint.find('checkpoint') != -1 else ""
             
             model = BertForSequenceClassification.from_pretrained(checkpoint)
-            model.to(args.device)
+            #model.to(args.device)
             evaluate(args, model, tokenizer, prefix=prefix, set_name='eval')
             
 
