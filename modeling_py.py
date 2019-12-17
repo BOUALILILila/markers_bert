@@ -468,7 +468,7 @@ def main():
 
     if args.do_train:
         dataset_path = f'{args.data_dir}/triples.unique.train.small_14M.csv'
-        dataset=LazyTextDataset(dataset_path, tokenizer,args.max_seq_length)
+        train_dataset=LazyTextDataset(dataset_path, tokenizer,args.max_seq_length)
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
