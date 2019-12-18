@@ -56,7 +56,13 @@ def encode(tokenizer,  query,
                        mask_padding_with_zero= True, 
                        pad_token=0, 
                        pad_token_segment_id=0):
-                       
+
+        query=query.encode("ISO 8859-1")
+        query=query.decode('utf-8')
+
+        doc=doc.encode("ISO 8859-1")
+        doc=doc.decode('utf-8')
+        
         query = convert_to_unicode(query)
         doc_text = convert_to_unicode(doc)
         inputs = tokenizer.encode_plus(
