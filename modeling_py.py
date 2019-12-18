@@ -96,7 +96,7 @@ class LazyTextDataset(Dataset):
         self._max_len=max_len
 
     def __getitem__(self, idx):
-        line = linecache.getline(self._filename, idx)
+        line = linecache.getline(self._filename, idx+2)
         csv_line = csv.reader([line], delimiter=',')
         row= next(csv_line)
         return encode(self.tokenizer,row[1],row[2],row[3],self._max_len)  
