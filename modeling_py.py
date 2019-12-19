@@ -8,12 +8,15 @@ import os
 import random
 import numpy as np
 import torch
-from torch.utils.data import TensorDataset, RandomSampler, DataLoader,Dataset
+from torch.utils.data import TensorDataset, RandomSampler,  SequentialSampler, DataLoader, Dataset
+from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 import linecache
 import csv
 import re
 import time
+import json
+
 # local module
 import six
 from six.moves import range
