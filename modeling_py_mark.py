@@ -469,8 +469,9 @@ def main():
     if args.do_train:
         dataset_path = f'{args.data_dir}/marked_match_simple_eq_triples_train.csv'
         train_dataset=LazyTextDataset(dataset_path, tokenizer,args.max_seq_length)
-        print('==========')
-        print(train_dataset.__len__())
+        print('\n\n\n==========')
+        print(tokenizer.tokenize('[e0]lila[\e0]'))
+        print('\n\n\n==========')
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
