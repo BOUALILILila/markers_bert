@@ -69,6 +69,8 @@ def encode(tokenizer,  query,
 
         attention_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
 
+        is_special_token = [1 if ]
+
         # Zero-pad up to the sequence length.
         padding_length = max_length - len(input_ids)
         if pad_on_left:
@@ -225,10 +227,10 @@ def train(args, train_dataset, model, tokenizer):
 
 def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
     eval_outputs_dirs = (args.output_dir,) #eval / dev /both
-    eval_dataset_paths = (f'{args.data_dir}/dataset_{set_name}.tf') #eval path / dev path/both
+    eval_dataset_paths = (f'{args.data_dir}/----') #eval path / dev path/both
     all_metrics = np.zeros(len(METRICS_MAP))
     for dataset_path, eval_output_dir in zip(eval_dataset_paths,eval_outputs_dirs):
-        eval_dataset= get_dataset(dataset_path, args.per_gpu_eval_batch_size, args.max_seq_length)
+        eval_dataset= #----------- LazyDataset sequential sampler data loader
 
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
@@ -248,7 +250,7 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
         out_label_ids = None
         for batch in tqdm(eval_dataset, desc="Evaluating"):
             model.eval()
-            #batch = tuple(torch.tensor(t.numpy(),dtype=torch.long).to(args.device) for t in batch)
+            #batch = tuple(t.to(args.device) for t in batch)
 
             with torch.no_grad():
                 inputs = {'input_ids':      batch[0],
@@ -498,7 +500,7 @@ def main():
     # Evaluation
     results = {}
     if args.do_eval and args.local_rank in [-1, 0]:
-        tokenizer = BertTokenizer.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
+        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         checkpoints = [args.output_dir]
         if args.eval_all_checkpoints:
             checkpoints = list(os.path.dirname(c) for c in sorted(glob.glob(args.output_dir + '/**/' + WEIGHTS_NAME, recursive=True)))
