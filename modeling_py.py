@@ -231,14 +231,16 @@ def train(args, train_dataset, model, tokenizer):
 
     return global_step, tr_loss / global_step
 
-
 def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
     eval_outputs_dirs = (args.output_dir,) #eval / dev /both
-    eval_dataset_paths = (f'{args.data_dir}/dataset_{set_name}.tf') #eval path / dev path/both
+    eval_dataset_paths = (f'{args.data_dir}/doc2query_run/top1000.doc2query.dev.small_100queries_ids_free.csv',) #eval path / dev path/both
     all_metrics = np.zeros(len(METRICS_MAP))
+    print(eval_dataset_paths)
     for dataset_path, eval_output_dir in zip(eval_dataset_paths,eval_outputs_dirs):
-        eval_dataset= get_dataset(dataset_path, args.per_gpu_eval_batch_size, args.max_seq_length)
-
+        eval_dataset= LazyTextDataset(dataset_path, tokenizer,args.max_seq_length)
+        eval_sampler = SequentialSampler(eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
+        eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size)
+    
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
 
@@ -255,9 +257,9 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
         nb_eval_steps = 0
         preds = None
         out_label_ids = None
-        for batch in tqdm(eval_dataset, desc="Evaluating"):
+        for batch in tqdm(eval_dataloader, desc="Evaluating"):
             model.eval()
-            #batch = tuple(torch.tensor(t.numpy(),dtype=torch.long).to(args.device) for t in batch)
+            batch = tuple(t.to(args.device) for t in batch)
 
             with torch.no_grad():
                 inputs = {'input_ids':      batch[0],
@@ -284,10 +286,10 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
         '''
         if args.msmarco_output:
             msmarco_file = open(
-                args.output_dir + "/msmarco_predictions_" + set_name + ".tsv", "w")
+                args.output_dir + "/runs/base/msmarco_predictions_" + set_name + ".tsv", "w")
         query_docids_map = []
         with open(
-            args.data_dir + "/query_doc_ids_" + set_name + ".txt") as ref_file:
+            args.data_dir + "/doc2query_run/base/query_doc_ids.top1000.doc2query.dev.small_100queries_no_markers.txt") as ref_file:
           for line in ref_file:
             query_docids_map.append(line.strip().split("\t"))
 
@@ -312,8 +314,10 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
                 scores = log_probs[:, 1]
                 pred_docs = scores.argsort()[::-1]
                 gt = set(list(np.where(labels > 0)[0]))
+                
 
-                all_metrics += metrics.metrics(
+                ###### metrics.metrics
+                all_metrics += metrics(
                     gt=gt, pred=pred_docs, metrics_map=METRICS_MAP)
 
                 if args.msmarco_output:
@@ -345,7 +349,7 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
         logger.info("Eval {}:".format(set_name))
         logger.info("  ".join(METRICS_MAP))
         logger.info(all_metrics)
-        
+     
         ##
         '''
         gt=set(list(np.where(labels > 0)[0])
