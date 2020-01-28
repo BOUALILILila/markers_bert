@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
-from transformers import AdamW, get_linear_schedule_with_warmup, BertConfig,BertForSequenceClassification, BertTokenizer
+from transformers import AdamW, get_linear_schedule_with_warmup, BertConfig,BertForSequenceClassification, BertModel, BertPreTrainedModel
+from tokenizers import BertWordPieceTokenizer
 
 import argparse
 import glob
@@ -7,116 +8,135 @@ import logging
 import os
 import random
 import numpy as np
+
 import torch
 from torch.utils.data import TensorDataset, RandomSampler,  SequentialSampler, DataLoader, Dataset
-from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data import Dataset
+from torch import nn
+from torch.nn import CrossEntropyLoss, MSELoss
+
 from tqdm import tqdm, trange
-import linecache
-import csv
 import re
 import time
 import json
 
-# local module
-import six
-from six.moves import range
+
 try:
     from torch.utils.tensorboard import SummaryWriter
 except:
     from tensorboardX import SummaryWriter
-import metrics
+
+from metrics import metrics
+from modeling_utils_TF import LazyTextDataset
 
 
 logger = logging.getLogger(__name__)
 METRICS_MAP = ['MAP', 'RPrec', 'MRR', 'NDCG', 'MRR@10']
 
-#--------------
+######################################################################################
+# Model integrating the representations of the top K terms with the highest TF score #
+######################################################################################
 
-def convert_to_unicode(text):
-        """Converts `text` to Unicode (if it's not already), assuming utf-8 input."""
-        if six.PY3:
-          if isinstance(text, str):
-            return text
-          elif isinstance(text, bytes):
-            return six.ensure_text(text, "utf-8", "ignore")
-          else:
-            raise ValueError("Unsupported string type: %s" % (type(text)))
-        elif six.PY2:
-          if isinstance(text, str):
-            return six.ensure_text(text, "utf-8", "ignore")
-          elif isinstance(text, six.text_type):
-            return text
-          else:
-            raise ValueError("Unsupported string type: %s" % (type(text)))
-        else:
-          raise ValueError("Not running on Python2 or Python 3?")
+class MarkersBertForSequenceClassification(BertPreTrainedModel):
+    r"""
+        **labels**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
+            Labels for computing the sequence classification/regression loss.
+            Indices should be in ``[0, ..., config.num_labels - 1]``.
+            If ``config.num_labels == 1`` a regression loss is computed (Mean-Square loss),
+            If ``config.num_labels > 1`` a classification loss is computed (Cross-Entropy).
+    Outputs: `Tuple` comprising various elements depending on the configuration (config) and inputs:
+        **loss**: (`optional`, returned when ``labels`` is provided) ``torch.FloatTensor`` of shape ``(1,)``:
+            Classification (or regression if config.num_labels==1) loss.
+        **logits**: ``torch.FloatTensor`` of shape ``(batch_size, config.num_labels)``
+            Classification (or regression if config.num_labels==1) scores (before SoftMax).
+        **hidden_states**: (`optional`, returned when ``config.output_hidden_states=True``)
+            list of ``torch.FloatTensor`` (one for the output of each layer + the output of the embeddings)
+            of shape ``(batch_size, sequence_length, hidden_size)``:
+            Hidden-states of the model at the output of each layer plus the initial embedding outputs.
+        **attentions**: (`optional`, returned when ``config.output_attentions=True``)
+            list of ``torch.FloatTensor`` (one for each layer) of shape ``(batch_size, num_heads, sequence_length, sequence_length)``:
+            Attentions weights after the attention softmax, used to compute the weighted average in the self-attention heads.
+    Examples::
+        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        model = MarkersBertForSequenceClassification.from_pretrained('bert-base-uncased')
+        input_ids = torch.tensor(tokenizer.encode("Hello, my dog is cute", add_special_tokens=True)).unsqueeze(0)  # Batch size 1
+        labels = torch.tensor([1]).unsqueeze(0)  # Batch size 1
+        outputs = model(input_ids, labels=labels)
+        loss, logits = outputs[:2]
+    """
 
-def encode(tokenizer,  query, 
-                       doc, 
-                       label, 
-                       max_length, 
-                       pad_on_left= False, 
-                       mask_padding_with_zero= True, 
-                       pad_token=0, 
-                       pad_token_segment_id=0):
+    def __init__(self, config, K=2):
+        super(MarkersBertForSequenceClassification, self).__init__(config)
 
-        query=query.encode("ISO 8859-1")
-        query=query.decode('utf-8')
+        self.max_size = (2*K+1)* config.hidden_size
 
-        doc=doc.encode("ISO 8859-1")
-        doc=doc.decode('utf-8')
+        self.num_labels = config.num_labels
+
+        self.bert = BertModel(config)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.classifier = nn.Linear(self.max_size, self.config.num_labels)
+
+        self.init_weights()
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        labels=None,
+        marker_masks=None,
+    ):
+
+        outputs = self.bert(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+        )
+
+        last_hidden_states = outputs[0]
         
-        query = convert_to_unicode(query)
-        doc_text = convert_to_unicode(doc)
-        inputs = tokenizer.encode_plus(
-                query,
-                doc_text,
-                add_special_tokens=True,
-                max_length=max_length,
-            )
-        input_ids, token_type_ids = inputs["input_ids"], inputs["token_type_ids"]
+        token_type_ids= token_type_ids.unsqueeze(-1)
+        marker_masks=marker_masks.transpose(0,1)
+        last_state = outputs[1] #cls
+        # For each term in top-K
+        for mask in marker_masks: 
+            mask = mask.unsqueeze(-1)
+            markers_last_hidden_states= last_hidden_states*mask
 
-        attention_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
+            q_markers_last_hidden_states= markers_last_hidden_states*(1+(-1)*token_type_ids)
+            d_markers_last_hidden_states= markers_last_hidden_states*token_type_ids
 
-        # Zero-pad up to the sequence length.
-        padding_length = max_length - len(input_ids)
-        if pad_on_left:
-            input_ids = ([pad_token] * padding_length) + input_ids
-            attention_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + attention_mask
-            token_type_ids = ([pad_token_segment_id] * padding_length) + token_type_ids
-        else:
-            input_ids = input_ids + ([pad_token] * padding_length)
-            attention_mask = attention_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
-            token_type_ids = token_type_ids + ([pad_token_segment_id] * padding_length)
+            q_markers_state= torch.sum(q_markers_last_hidden_states, axis=1)
+            d_markers_state= torch.sum(d_markers_last_hidden_states, axis=1)
 
-        assert len(input_ids) == max_length, "Error with input length {} vs {}".format(len(input_ids), max_length)
-        assert len(attention_mask) == max_length, "Error with input length {} vs {}".format(len(attention_mask), max_length)
-        assert len(token_type_ids) == max_length, "Error with input length {} vs {}".format(len(token_type_ids), max_length)
-        return torch.tensor(input_ids), torch.tensor(attention_mask),torch.tensor(token_type_ids), torch.tensor(int(label))
+            last_state= torch.cat((last_state, q_markers_state, d_markers_state), dim=1)
 
-class LazyTextDataset(Dataset):
-    def __init__(self, filename, tokenizer, max_len):
-        self._filename=filename
-        with open(filename, "r") as f:
-          for i, l in enumerate(f):
-            pass
-        self._total_data = i
-        self.tokenizer=tokenizer
-        self._max_len=max_len
+        # dropout 
+        last_state = self.dropout(last_state)
 
-    def __getitem__(self, idx):
-        line = linecache.getline(self._filename, idx+2)
-        csv_line = csv.reader([line], delimiter=',')
-        row= next(csv_line)
-        return encode(self.tokenizer,row[1],row[2],row[3],self._max_len)  
-          
-    def __len__(self):
-        return self._total_data     
-#--------------
+        logits = self.classifier(last_state)
 
+        outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
 
+        if labels is not None:
+            if self.num_labels == 1:
+                #  We are doing regression
+                loss_fct = MSELoss()
+                loss = loss_fct(logits.view(-1), labels.view(-1))
+            else:
+                loss_fct = CrossEntropyLoss()
+                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            outputs = (loss,) + outputs
+        
+        return outputs  # (loss), logits, (hidden_states), (attentions)
 
-
+#==========================
 
 def set_seed(args):
     random.seed(args.seed)
@@ -131,15 +151,14 @@ def train(args, train_dataset, model, tokenizer):
         tb_writer = SummaryWriter()
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
-    train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size)
+
     # gotta have the total train dataset size
     
     if args.max_steps > 0:
         t_total = args.max_steps
-        args.num_train_epochs = args.max_steps // (len(train_dataloader) // args.gradient_accumulation_steps) + 1
+        args.num_train_epochs = args.max_steps // (len(train_dataset) // args.gradient_accumulation_steps) + 1
     else:
-        t_total = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
+        t_total = len(train_dataset) // args.gradient_accumulation_steps * args.num_train_epochs
 
 
     # Prepare optimizer and schedule (linear warmup and decay)
@@ -165,27 +184,28 @@ def train(args, train_dataset, model, tokenizer):
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])
     set_seed(args)  # Added here for reproductibility (even between python 2 and 3)
     for _ in train_iterator:
-        epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
+        epoch_iterator = tqdm(train_dataset, desc="Iteration", disable=args.local_rank not in [-1, 0])
         for step, batch in enumerate(epoch_iterator):
             model.train()
+            batch = tuple(t.to(args.device) for t in batch)
             inputs = {'input_ids':      batch[0],
                       'attention_mask': batch[1],
-                      'labels':         batch[3]}
-
+                      'token_type_ids': batch[2],
+                      'labels':         batch[3],
+                      'marker_masks': batch[4]}
             outputs = model(**inputs)
+            
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
 
-            if args.n_gpu > 1:
-                loss = loss.mean() # mean() to average on multi-gpu parallel training
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
-
             loss.backward()
 
             tr_loss += loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
+                
                 optimizer.step()
                 scheduler.step()  # Update learning rate schedule
                 model.zero_grad()
@@ -208,7 +228,7 @@ def train(args, train_dataset, model, tokenizer):
                     for key, value in logs.items():
                         tb_writer.add_scalar(key, value, global_step)
                     print(json.dumps({**logs, **{'step': global_step}}))
-
+                    epoch_iterator.set_postfix(loss=loss_scalar, lr=learning_rate_scalar, step=global_step)
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                     # Save model checkpoint
                     output_dir = os.path.join(args.output_dir, 'checkpoint-{}'.format(global_step))
@@ -231,9 +251,9 @@ def train(args, train_dataset, model, tokenizer):
 
     return global_step, tr_loss / global_step
 
-def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
+def evaluate(args, model, tokenizer, prefix="", set_name='dev', global_step):
     eval_outputs_dirs = (args.output_dir,) #eval / dev /both
-    eval_dataset_paths = (f'{args.data_dir}/doc2query_run/top1000.doc2query.dev.small_100queries_ids_free.csv',) #eval path / dev path/both
+    eval_dataset_paths = (f'{args.data_dir}/doc2query_run/TF/run_dev.csv',) #eval path / dev path/both
     all_metrics = np.zeros(len(METRICS_MAP))
     print(eval_dataset_paths)
     for dataset_path, eval_output_dir in zip(eval_dataset_paths,eval_outputs_dirs):
@@ -264,7 +284,9 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
             with torch.no_grad():
                 inputs = {'input_ids':      batch[0],
                           'attention_mask': batch[1],
-                          'labels':         batch[3]}
+                          'token_type_ids': batch[2],
+                          'labels':         batch[3],
+                          'marker_masks': batch[4]}
                 outputs = model(**inputs)
                 tmp_eval_loss, logits = outputs[:2]
 
@@ -278,22 +300,17 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
                 out_label_ids = np.append(out_label_ids, inputs['labels'].detach().cpu().numpy(), axis=0)
 
         eval_loss = eval_loss / nb_eval_steps
-        '''
-        if args.output_mode == "classification":
-            preds = np.argmax(preds, axis=1)
-        elif args.output_mode == "regression":
-            preds = np.squeeze(preds)
-        '''
         if args.msmarco_output:
             msmarco_file = open(
-                args.output_dir + "/runs/base/msmarco_predictions_" + set_name + ".tsv", "w")
+                f"{args.output_dir}/TF/checkpoint-{global_step}/msmarco_predictions_{set_name}.tsv", "w")
         query_docids_map = []
         with open(
-            args.data_dir + "/doc2query_run/base/query_doc_ids.top1000.doc2query.dev.small_100queries_no_markers.txt") as ref_file:
+            f"{args.data_dir}/doc2query_run/TF/query_doc_ids.top1000.doc2query.dev.small_full.txt") as ref_file:
+          for _ in range(args.chunk*1745000):
+            next(ref_file)
           for line in ref_file:
             query_docids_map.append(line.strip().split("\t"))
 
-        ##
         start_time = time.time()
         results = []
         all_metrics = np.zeros(len(METRICS_MAP))
@@ -314,9 +331,7 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
                 scores = log_probs[:, 1]
                 pred_docs = scores.argsort()[::-1]
                 gt = set(list(np.where(labels > 0)[0]))
-                
 
-                ###### metrics.metrics
                 all_metrics += metrics(
                     gt=gt, pred=pred_docs, metrics_map=METRICS_MAP)
 
@@ -349,21 +364,8 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev'):
         logger.info("Eval {}:".format(set_name))
         logger.info("  ".join(METRICS_MAP))
         logger.info(all_metrics)
-     
-        ##
-        '''
-        gt=set(list(np.where(labels > 0)[0])
-        all_metrics += metrics.metrics(gt , preds, METRICS_MAP)
         
-        
-        output_eval_file = os.path.join(eval_output_dir, prefix, "eval_results.txt")
-        with open(output_eval_file, "w") as writer:
-            logger.info("***** Eval results {} *****".format(prefix))
-            for key in sorted(result.keys()):
-                logger.info("  %s = %s", key, str(result[key]))
-                writer.write("%s = %s\n" % (key, str(result[key])))
-        '''
-    
+
 
 
 def main():
@@ -376,13 +378,11 @@ def main():
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")
 
-    ## Other parameters
+     ## Other parameters
     parser.add_argument("--config_name", default="", type=str,
                         help="Pretrained config name or path if not the same as model_name")
     parser.add_argument("--tokenizer_name", default="", type=str,
                         help="Pretrained tokenizer name or path if not the same as model_name")
-    parser.add_argument("--cache_dir", default="", type=str,
-                        help="Where do you want to store the pre-trained models downloaded from s3")
     parser.add_argument("--max_seq_length", default=512, type=int,
                         help="The maximum total input sequence length after tokenization. Sequences longer "
                              "than this will be truncated, sequences shorter will be padded.")
@@ -428,52 +428,45 @@ def main():
                         help="Avoid using CUDA when available")
     parser.add_argument('--overwrite_output_dir', action='store_true',
                         help="Overwrite the content of the output directory")
-    parser.add_argument('--overwrite_cache', action='store_true',
-                        help="Overwrite the cached training and evaluation sets")
     parser.add_argument('--seed', type=int, default=42,
                         help="random seed for initialization")
     parser.add_argument("--msmarco_output", action='store_true',
-                        help="Batch size per GPU/CPU for training.")
+                        help="Return msmarco output format file")
 
-    parser.add_argument('--fp16', action='store_true',
-                        help="Whether to use 16-bit (mixed) precision (through NVIDIA apex) instead of 32-bit")
-    parser.add_argument('--fp16_opt_level', type=str, default='O1',
-                        help="For fp16: Apex AMP optimization level selected in ['O0', 'O1', 'O2', and 'O3']."
-                             "See details at https://nvidia.github.io/apex/amp.html")
     parser.add_argument("--local_rank", type=int, default=-1,
                         help="For distributed training: local_rank")
-    parser.add_argument('--server_ip', type=str, default='', help="For distant debugging.")
-    parser.add_argument('--server_port', type=str, default='', help="For distant debugging.")
     args = parser.parse_args()
 
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train and not args.overwrite_output_dir:
         raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
 
     if args.local_rank == -1 or args.no_cuda:
-        #device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
-        #args.n_gpu = torch.cuda.device_count()
+        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+        args.n_gpu = torch.cuda.device_count()
         args.n_gpu=1
     else:  # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         torch.cuda.set_device(args.local_rank)
         device = torch.device("cuda", args.local_rank)
         torch.distributed.init_process_group(backend='nccl')
         args.n_gpu = 1
-    #args.device = device
+    args.device = device
 
     # Setup logging
     logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt = '%m/%d/%Y %H:%M:%S',
                         level = logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
-    #logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s",
+    logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s",
     #                args.local_rank, device, args.n_gpu, bool(args.local_rank != -1))
     
     # Set seed
     set_seed(args)
     num_labels=2
     config = BertConfig.from_pretrained("bert-base-uncased", num_labels=num_labels)
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer = BertWordPieceTokenizer(f"{args.data_dir}/bert_based_uncased_vocab.txt", lowercase=True)
+    tokenizer.enable_truncation(args.max_seq_length)
+    tokenizer.enable_padding('right',max_length=args.max_seq_length)
     model = BertForSequenceClassification.from_pretrained('bert-base-uncased', config=config)
-    #model.to(args.device)
+    model.to(args.device)
 
     args.output_mode='classification'
 
@@ -493,26 +486,23 @@ def main():
             os.makedirs(args.output_dir)
 
         logger.info("Saving model checkpoint to %s", args.output_dir)
-        # Save a trained model, configuration and tokenizer using `save_pretrained()`.
+        # Save a trained model, configuration using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
         model_to_save = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
         model_to_save.save_pretrained(args.output_dir)
-        tokenizer.save_pretrained(args.output_dir)
 
         # Good practice: save your training arguments together with the trained model
         torch.save(args, os.path.join(args.output_dir, 'training_args.bin'))
 
-        # Load a trained model and vocabulary that you have fine-tuned
-        model = BertForSequenceClassification.from_pretrained(args.output_dir)
-        tokenizer = BertTokenizer.from_pretrained(args.output_dir)
-        #model.to(args.device)
 
 
     # Evaluation
     results = {}
     if args.do_eval and args.local_rank in [-1, 0]:
-        tokenizer = BertTokenizer.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
-        checkpoints = [args.output_dir]
+        tokenizer = BertWordPieceTokenizer(f"{args.data_dir}/bert_based_uncased_vocab.txt", lowercase=True)
+        tokenizer.enable_truncation(args.max_seq_length)
+        tokenizer.enable_padding('right',max_length=args.max_seq_length)
+        checkpoints = [args.output_dir] # can specifiy only one checkpoint checkpoints = [f'{args.data_dir}/checkpoint-{args.checkpoint}']
         if args.eval_all_checkpoints:
             checkpoints = list(os.path.dirname(c) for c in sorted(glob.glob(args.output_dir + '/**/' + WEIGHTS_NAME, recursive=True)))
             logging.getLogger("transformers.modeling_utils").setLevel(logging.WARN)  # Reduce logging
@@ -521,9 +511,9 @@ def main():
             global_step = checkpoint.split('-')[-1] if len(checkpoints) > 1 else ""
             prefix = checkpoint.split('/')[-1] if checkpoint.find('checkpoint') != -1 else ""
             
-            model = BertForSequenceClassification.from_pretrained(checkpoint)
-            #model.to(args.device)
-            evaluate(args, model, tokenizer, prefix=prefix, set_name='eval')
+            model = MarkersBertForSequenceClassification.from_pretrained(checkpoint)
+            model.to(args.device)
+            evaluate(args, model, tokenizer, prefix=prefix, set_name='eval', global_step)
             
 
     return results
