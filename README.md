@@ -116,5 +116,6 @@ python ./Modeling/modeling_TF.py \
       --local_rank=-1 \
       --overwrite_output_dir
 ```
-
+## Evaluation 
+We use Anserini evaluation script for msmarco. The ```evaluation_script.ipynb``` notebook illustrates the steps for downloading Anserini and use it in [googe colab notebook](https://colab.research.google.com) in order to evaluate the run files obtained above.
 
