@@ -8,18 +8,25 @@ We use the traditional BM25 to retrieve an intital list of the top 1000 passages
 ## Second Stage: Enhanced BERT re-ranking
 ### Data preparation
 First we need to put MsMarco data in the appropriate format. 
-- For the fine-tuning use the script below to create the .csv file of unique pairs from the ```triples.train.small.tsv``` file: 
+- Links for dowmloading MsMarco corpus :
 ```
-python construct_train_data.py \
-          -
-```
+DATA_DIR=./Data
+mkdir $DATA_DIR
 
-- For the inference data. Once you get the run file from the first stage ([download here](https://drive.google.com/file/d/1uW2JF5aXDTjlKUnMQttXrCPo5pqjEphk/view?usp=sharing)). Use the script below :
+wget https://msmarco.blob.core.windows.net/msmarcoranking/triples.train.small.tar.gz -P ${DATA_DIR}
+wget https://msmarco.blob.core.windows.net/msmarcoranking/top1000.dev.tar.gz -P ${DATA_DIR}
+wget https://msmarco.blob.core.windows.net/msmarcoranking/qrels.dev.small.tsv -P ${DATA_DIR}
+wget https://msmarco.blob.core.windows.net/msmarcoranking/queries.train.tsv -P ${DATA_DIR}
+wget https://msmarco.blob.core.windows.net/msmarcoranking/collection.tar.gz -P ${DATA_DIR}
+
+tar -xvf ${DATA_DIR}/triples.train.small.tar.gz -C ${DATA_DIR}
+tar -xvf ${DATA_DIR}/top1000.dev.tar.gz -C ${DATA_DIR}
+tar -xvf ${DATA_DIR}/collection.tar.gz -C ${DATA_DIR}
 ```
-python construct_train_data.py \
-          -
-```
-This script produces two files the first is the the data file ```dataset.csv``` and the second is the ```query_doc_ids.txt```. 
+- Fine-tuning Data : Use the ```construct_dataset_msmarco.ipynb``` notebook to obtain the ```.csv``` file containing unique pairs from the ```triples.train.small.tsv``` file and balanced number of relevant/ non-relevant pairs.
+
+- Inference data: Once you get the run file from the first stage ([download here](https://drive.google.com/file/d/1uW2JF5aXDTjlKUnMQttXrCPo5pqjEphk/view?usp=sharing)). Use the notebook that produces two files, the first is the the data file ```dataset.csv``` and the second is the query-passage ids mapping file ```query_doc_ids.txt```. 
+
 ### Base Model
 Basic BERT-base model re-ranker that uses \[CLS\] token for classification. Use the script below to fine-tune this model and evaluate it:
 ```
