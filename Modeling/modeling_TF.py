@@ -379,6 +379,8 @@ def main():
                         help="The output directory where the model predictions and checkpoints will be written.")
 
      ## Other parameters
+     parser.add_argument("--K", default=2, type=int,
+                        help="The maximum number of terms to consider in the relevance classification layer. the top K terms with the highest TFs.")
     parser.add_argument("--config_name", default="", type=str,
                         help="Pretrained config name or path if not the same as model_name")
     parser.add_argument("--tokenizer_name", default="", type=str,
@@ -465,7 +467,7 @@ def main():
     tokenizer = BertWordPieceTokenizer(f"{args.data_dir}/bert_based_uncased_vocab.txt", lowercase=True)
     tokenizer.enable_truncation(args.max_seq_length)
     tokenizer.enable_padding('right',max_length=args.max_seq_length)
-    model = BertForSequenceClassification.from_pretrained('bert-base-uncased', config=config)
+    model = MarkersBertForSequenceClassification.from_pretrained('bert-base-uncased', config=config, K=args.K)
     model.to(args.device)
 
     args.output_mode='classification'
@@ -497,7 +499,6 @@ def main():
 
 
     # Evaluation
-    results = {}
     if args.do_eval and args.local_rank in [-1, 0]:
         tokenizer = BertWordPieceTokenizer(f"{args.data_dir}/bert_based_uncased_vocab.txt", lowercase=True)
         tokenizer.enable_truncation(args.max_seq_length)
@@ -515,8 +516,6 @@ def main():
             model.to(args.device)
             evaluate(args, model, tokenizer, prefix=prefix, set_name='eval', global_step)
             
-
-    return results
 
 
 if __name__ == "__main__":

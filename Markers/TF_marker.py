@@ -100,9 +100,9 @@ def main():
 
   ## Required parameters
   parser.add_argument("--data_path", default=None, type=str, required=True,
-                        help="The input data dir. Should contain the .csv files (or other data files) for the task.")
+                        help="The input data file.")
   parser.add_argument("--output_path", default=None, type=str, required=True,
-                        help="The output directory where the marked data will be saved.")
+                        help="The output path of the marked data to be saved.")
   args = parser.parse_args()
 
   dff=pd.read_csv(f"{args.data_path}",index_col=0)

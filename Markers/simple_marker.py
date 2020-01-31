@@ -62,7 +62,26 @@ def mark(pair):
   pair['marked_p'] = " ".join(d)
   return pair
 
-dff['marked_q']=[0]*len(dff)
-dff['marked_p']=[0]*len(dff)
-dff=dff.apply(mark,axis=1)
-dff.to_csv('/projets/iris/PROJETS/lboualil/workdata/msmarco-passage/doc2query_run/markers/marked_top1000.doc2query.dev.small_full_ids_free.csv')
+def main():
+    
+  parser = argparse.ArgumentParser()
+
+  ## Required parameters
+  parser.add_argument("--data_path", default=None, type=str, required=True,
+                        help="The input data file.")
+  parser.add_argument("--output_path", default=None, type=str, required=True,
+                        help="The output path of the marked data to be saved.")
+  args = parser.parse_args()
+
+  dff=pd.read_csv(f"{args.data_path}",index_col=0)
+
+  dff['marked_p']=[0]*len(dff)
+  dff['marked_q']=[0]*len(dff)
+  dff['stats']=[0]*len(dff)
+
+  dff=dff.apply(mark,axis=1)
+
+  dff.to_csv(f"{args.output_path}")
+
+if __name__ == "__main__":
+    main()

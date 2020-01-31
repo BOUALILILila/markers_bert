@@ -21,7 +21,6 @@ def encode(tokenizer,  query,
 
         attention_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
 
-        is_special_token = [1 if ]
 
         # Zero-pad up to the sequence length.
         padding_length = max_length - len(input_ids)
