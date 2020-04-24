@@ -1,62 +1,64 @@
-import pandas as pd
+import argparse
 import nltk
 from nltk.stem.porter import PorterStemmer
-from nltk.tokenize import word_tokenize as tokenizer
-from nltk.corpus import stopwords
-from bs4 import BeautifulSoup
-import re, string
-import json
-import copy
+import time, re
+import tensorflow as tf
+from transformers import BertTokenizer
+from Data_processing import clean_text, write_to_tf_record
+import spacy as sp
+from spacy.tokens import Doc
 
-#====
-STOP_WORDS= set(stopwords.words('english'))
-PUNKT=set(string.punctuation)
-a='â\x80\x99'
-b=a.encode('ISO 8859-1')
-b=b.decode('utf-8')
-PUNKT.add(b)
+def clean_text(text):
+    #encoding
+    try:
+        t = text.encode("ISO 8859-1")
+        enc_text = t.decode('utf-8')
+    except (UnicodeDecodeError, UnicodeEncodeError) as e:
+        enc_text = text
 
-porter =PorterStemmer()
-#====
+    #line break
+    text= enc_text.replace('\n',' ')
+    
+    #empty characters
+    text = " ".join(text.strip().split())
+
+    return text
 
 
-def mark(pair):
-  try:
-        dt=pair['p_txt'].encode("ISO 8859-1")
-        dt=dt.decode('utf-8')
-  except UnicodeDecodeError:
-        dt=pair['p_txt']
-  
-  try:
-        qt=pair['q_txt'].encode("ISO 8859-1")
-        qt=qt.decode('utf-8')
-  except UnicodeDecodeError:
-        qt=pair['q_txt']
-  
-  d=tokenizer(dt)
-  q=tokenizer(qt)
-  ql=copy.deepcopy(q)
-  i=0
-  sq=set()
-  for word in ql:
-    stem= porter.stem(word)
-    if word not in PUNKT and word.lower() not in STOP_WORDS and stem not in sq:
-      
-      match=0
-      for idd,token in enumerate(d):
-        if porter.stem(token) ==stem:
-          d[idd]=f"[e{i}]{token}[\e{i}]"
-          match=1
-      if match:
-        for idq,token in enumerate(q):
-          if porter.stem(token) ==stem:
-            q[idq]=f"[e{i}]{token}[\e{i}]"
-        i+=1
-      sq.add(stem)
-      
-  pair['marked_q'] = " ".join(q)
-  pair['marked_p'] = " ".join(d)
-  return pair
+def marker(query, doc, nlp, porter):
+    d = nlp(clean_text(doc))
+    q = nlp(clean_text(query))
+    marked_p = []
+    marked_q = []
+    stem_to_id = dict()
+    q_i = 0
+    for token in q:
+        marked_q.append(token.text)
+        if not (token.is_punct or token.is_stop):
+            stem = porter.stem(token.text.lower())
+            marked_q.pop()
+            if stem in stem_to_id :
+                i = stem_to_id[stem]
+                marked_q.append(f"[e{i}]{token.text}[\e{i}]")
+            if stem not in stem_to_id :
+                stem_to_id[stem] = q_i
+                marked_q.append(f"[e{q_i}]{token.text}[\e{q_i}]")
+                q_i +=1
+            
+    for i,term in enumerate(d):
+        marked_p.append(term.text)
+        if not (term.is_punct or term.is_stop):
+            stem = porter.stem(term.text.lower())
+            for q_stem in stem_to_id:
+                if q_stem == stem:
+                    q_i = stem_to_id[stem]
+                    marked_p.pop()
+                    marked_p.append(f"[e{q_i}]{term.text}[\e{q_i}]")
+                    break  
+
+    qu = Doc(nlp.vocab, words=marked_q, spaces= [token.whitespace_ for token in q])    
+    doc = Doc(nlp.vocab, words=marked_p, spaces=[token.whitespace_ for token in d])
+    return ''.join(token.text_with_ws for token in qu), ''.join(token.text_with_ws for token in doc)
 
 def main():
     
@@ -69,14 +71,32 @@ def main():
                         help="The output path of the marked data to be saved.")
   args = parser.parse_args()
 
-  dff=pd.read_csv(f"{args.data_path}",index_col=0)
+  nlp = sp.load("en_core_web_sm", disable=['parser', 'tagger', 'ner'])
+  porter =PorterStemmer()
 
-  dff['marked_p']=[0]*len(dff)
-  dff['marked_q']=[0]*len(dff)
+  bertTokenizer = BertTokenizer.from_pretrained(args.tokenizer_dir)
+  tsv_writer = open(args.output_path, 'w')
 
-  dff=dff.apply(mark,axis=1)
+  start_time = time.time()
 
-  dff.to_csv(f"{args.output_path}")
+  print('Counting number of examples...')
+  num_lines = sum(1 for line in open(args.data_path, 'r'))
+  print('{} examples found.'.format(num_lines))
+
+  with open(args.data_path, 'r') as f:
+        for i, line in enumerate(f):
+            if i % 1000 == 0:
+                time_passed = int(time.time() - start_time)
+                print('Processed training set, line {} of {} in {} sec'.format(
+                    i, num_lines, time_passed))
+                hours_remaining = (num_lines - i) * time_passed / (max(1.0, i) * 3600)
+                print('Estimated hours remaining to write the training set: {}'.format(
+                    hours_remaining))
+
+            idx, query, doc, label = line.rstrip().split()
+            q, p = marker(query, doc, nlp, porter)
+            tsv_writer.write(f"{idx} {q} {p} {label}\n")
+  tsv_writer.close()
 
 if __name__ == "__main__":
     main()
