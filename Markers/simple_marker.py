@@ -19,10 +19,6 @@ PUNKT.add(b)
 porter =PorterStemmer()
 #====
 
-data="/projets/iris/PROJETS/lboualil/workdata/msmarco-passage/top1000.doc2query.dev.small_full_ids_free.csv"
-dff= pd.read_csv(data, index_col=0)
-dff=dff.reset_index(drop=True)
-
 
 def mark(pair):
   try:
@@ -77,7 +73,6 @@ def main():
 
   dff['marked_p']=[0]*len(dff)
   dff['marked_q']=[0]*len(dff)
-  dff['stats']=[0]*len(dff)
 
   dff=dff.apply(mark,axis=1)
 

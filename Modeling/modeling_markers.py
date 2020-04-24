@@ -196,10 +196,8 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev', global_step):
         query_docids_map = []
         with open(
             args.data_dir + "/doc2query_run/markers/query_doc_ids.top1000.doc2query.dev.small_full.txt") as ref_file:
-          for _ in range(args.chunk*1745000):
-            next(ref_file)
-          for line in ref_file:
-            query_docids_map.append(line.strip().split("\t"))
+                for line in ref_file:
+                    query_docids_map.append(line.strip().split("\t"))
 
         start_time = time.time()
         results = []
