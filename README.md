@@ -1,4 +1,4 @@
-# markerdbert
+# markerdBert
 
 This repository contains the code for the paper : MarkedBERT: Integrating Traditional IR cues in pre-trained language models for passage retrieval. 
 This code may lead to different results due to the training environment whether it is on GPU or TPU. A new repository using tensorflow 2.0 for training on Colab TPU will be soon made public.
