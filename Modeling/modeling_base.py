@@ -79,6 +79,7 @@ def train(args, train_dataset, model, tokenizer):
             batch = tuple(t.to(args.device) for t in batch)
             inputs = {'input_ids':      batch[0],
                       'attention_mask': batch[1],
+                      'token_type_ids' : batch[2],
                       'labels':         batch[3]}
 
             outputs = model(**inputs)
@@ -173,6 +174,7 @@ def evaluate(args, model, tokenizer, prefix="", set_name='dev', global_step):
             with torch.no_grad():
                 inputs = {'input_ids':      batch[0],
                           'attention_mask': batch[1],
+                          'token_type_ids' : batch[2],
                           'labels':         batch[3]}
                 outputs = model(**inputs)
                 tmp_eval_loss, logits = outputs[:2]
