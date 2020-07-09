@@ -1,4 +1,4 @@
-# markerdBert
+# MarkerdBert
 
 This repository contains the code for our SIGIR 2020 paper : MarkedBERT: Integrating Traditional IR cues in pre-trained language models for passage retrieval. 
 This code may lead to different results due to the training environment whether it is on GPU or TPU. A new repository using tensorflow 2.0 for training on Colab TPU will be soon made public.
@@ -6,7 +6,7 @@ This code may lead to different results due to the training environment whether 
 ## First Stage: Doc2query Passage Expansion + BM25
 We use the traditional BM25 to retrieve an intital list of the top 1000 passages per query. To avoid the "vocabulary mismatch" problem we apply the Doc2query passage expansion technique by [(Nogueira et al., 2019)](https://arxiv.org/pdf/1904.08375.pdf). [Here is the link to the github repo](https://github.com/nyu-dl/dl4ir-doc2query).
 
-## Second Stage: Enhanced BERT re-ranking
+## Second Stage: BERT re-ranking
 ### Data preparation
 First we need to put MsMarco data in the appropriate format. 
 - Links for dowmloading MsMarco corpus :
@@ -53,7 +53,7 @@ python ./Modeling/modeling_base.py \
       --overwrite_output_dir
 ```
 
-### Incorporating Exact Match signals via Markers
+### MakedBERT: Incorporating Exact Match signals via Markers
 1. We first need to mark both the training dataset and the dev set using this script: 
 ```
 python ./Markers/simple_marker.py \
