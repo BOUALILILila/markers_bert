@@ -53,7 +53,7 @@ python ./Modeling/modeling_base.py \
       --overwrite_output_dir
 ```
 
-### MakedBERT: Incorporating Exact Match signals via Markers
+### MarkedBERT: Incorporating Exact Match signals via Markers
 1. We first need to mark both the training dataset and the dev set using this script: 
 ```
 python ./Markers/simple_marker.py \
