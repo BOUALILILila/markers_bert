@@ -1,7 +1,8 @@
 # MarkerdBert
 
 This repository contains the code for our SIGIR 2020 paper : MarkedBERT: Integrating Traditional IR cues in pre-trained language models for passage retrieval. 
-This code may lead to different results due to the training environment whether it is on GPU or TPU. A new repository using tensorflow 2.0 for training on Colab TPU will be soon made public.
+
+This code is no longer maintained. Check my [new repository](https://github.com/BOUALILILila/ExactMatchMarking) using tensorflow 2.0 for training on both GPU and Colab TPU is available, the newly trained checkpoints are available on [hugginface hub](https://huggingface.co/LilaBoualili). It is important to note that the new checkpoints are trained with more data and thus lead to different performance. 
 
 ## First Stage: Doc2query Passage Expansion + BM25
 We use the traditional BM25 to retrieve an intital list of the top 1000 passages per query. To avoid the "vocabulary mismatch" problem we apply the Doc2query passage expansion technique by [(Nogueira et al., 2019)](https://arxiv.org/pdf/1904.08375.pdf). [Here is the link to the github repo](https://github.com/nyu-dl/dl4ir-doc2query).
